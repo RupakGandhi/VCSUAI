@@ -4477,7 +4477,17 @@ function textSimilarity(a, b) {
   if(wordsA.size === 0 || wordsB.size === 0) return 0;
   let intersection = 0;
   for(let w of wordsA) { if(wordsB.has(w)) intersection++; }
-  return intersection / Math.min(wordsA.size, wordsB.size);
+  // intersection / min(...) rewards near-full containment of whichever text
+  // is shorter -- correct for the intended case (a bracket-substituted or
+  // paraphrased paste that still contains the full stored prompt, or a
+  // longer follow-up message that contains it), but a very short stored
+  // prompt has so few distinctive words that unrelated text can satisfy
+  // full containment by coincidence, misrouting it to that prompt's
+  // canned response. Require the shorter side to carry a minimum number of
+  // distinctive words before its containment counts as real evidence.
+  let minSize = Math.min(wordsA.size, wordsB.size);
+  if(minSize < 4) return 0;
+  return intersection / minSize;
 }
 
 function findBestMatch(userText, roleData) {
@@ -4491,10 +4501,17 @@ function findBestMatch(userText, roleData) {
     if(!entry.response) continue;  // Skip entries with no response
     let score = 0;
 
-    // Strategy 1: Exact title match (highest priority)
+    // Strategy 1: Exact title match (highest priority). Guarded by a
+    // minimum length on whichever side is the "needle" being searched for
+    // -- otherwise a short/generic title (or a short first line the user
+    // happened to type) triggers this high-confidence match on almost any
+    // unrelated text that coincidentally contains that same short string.
     let entryTitle = (entry.title || '').toLowerCase().trim();
-    if(entryTitle && (userTitle.includes(entryTitle) || entryTitle.includes(userTitle))) {
-      score = Math.max(score, 0.95);
+    if(entryTitle) {
+      let titleMatch =
+        (entryTitle.length >= 8 && userTitle.includes(entryTitle)) ||
+        (userTitle.length >= 8 && entryTitle.includes(userTitle));
+      if(titleMatch) score = Math.max(score, 0.95);
     }
 
     // Strategy 2: Prompt text similarity (compare full text)
