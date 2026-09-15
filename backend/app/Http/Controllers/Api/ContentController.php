@@ -200,6 +200,12 @@ class ContentController extends Controller
                         'followup_options' => $sim->followup_options,
                         'bias_check_tips' => $sim->bias_check_tips,
                         'requires_file_upload' => (bool) $sim->requires_file_upload,
+                        // Lets the front end verify an uploaded file actually
+                        // matches the sample this prepared walkthrough is
+                        // keyed to (D05), rather than showing that response
+                        // for any file selected. Column already existed but
+                        // was never sent to the front end.
+                        'expected_filename' => $sim->expected_filename,
                     ])->values())
                     ->toArray();
             });

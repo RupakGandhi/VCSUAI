@@ -2783,6 +2783,14 @@ h1,h2,h3,h4,h5 { font-family: 'Inter', system-ui, -apple-system, sans-serif; lin
     border: 1px solid rgba(0, 0, 0, 0.15);
     color: var(--text-dark);
   }
+  /* Disclosure above an upload-triggered response: makes clear it's a
+     prepared walkthrough for the expected sample, not live file analysis. */
+  .sim-prepared-note {
+    font-size: 0.72rem;
+    font-style: italic;
+    color: var(--text-lighter);
+    margin-bottom: 0.3rem;
+  }
   /* User bubble styling using a lighter primary color for contrast */
   .sim-msg.user .sim-msg-text {
     background: var(--primary-light);
@@ -4694,54 +4702,106 @@ function findBestMatch(userText, roleData) {
     body.appendChild(userDiv);
     body.scrollTop = body.scrollHeight;
 
-    // Update conversation state
-    var convKey = mid + '_' + currentRole;
-    if (!simConversations[convKey]) simConversations[convKey] = {turns:0, lastMatchIdx:-1, usedFollowups:[]};
-    var conv = simConversations[convKey];
-    var matchIdx = roleData.indexOf(entry);
-    if (matchIdx >= 0) { conv.lastMatchIdx = matchIdx; conv.turns = 1; conv.usedFollowups = []; }
-
-    // Format and render response via typewriter
-    var responseText = (entry.response || 'Here is a response based on your uploaded file.');
-    responseText = responseText.replace(/^#{1,3}\s+/gm, '');
-    responseText = responseText.replace(/\*\*/g, '');
-    responseText = responseText.replace(/\*([^*]+)\*/g, '$1');
-    responseText = responseText.replace(/\n\s*\*\s+/g, '\n• ');
-    responseText = responseText.replace(/\n\s*-\s+/g, '\n• ');
-    var verificationTips = entry.verification_tips || [];
-    var followupOptions = (entry.followup_options || []).map(function(o, i) { return Object.assign({}, o, {_origIdx: i}); });
-
-    var aiDiv = document.createElement('div');
-    aiDiv.className = 'sim-msg ai';
-    aiDiv.innerHTML = '<div class="sim-msg-label">AI Assistant</div><button class="sim-copy-btn" onclick="copyAiResponse(this)">Copy</button><div class="sim-msg-text"></div>';
-    body.appendChild(aiDiv);
-    var textEl = aiDiv.querySelector('.sim-msg-text');
-    var chars = responseText.split('');
-    var idx = 0;
-    function typeChar() {
-      if (idx < chars.length) {
-        var chunk = Math.min(3, chars.length - idx);
-        for (var ci = 0; ci < chunk; ci++) {
-          textEl.innerHTML += chars[idx] === '\n' ? '<br>' : escapeHtml(chars[idx]);
-          idx++;
-        }
+    // This simulator gives a PREPARED walkthrough keyed to a specific
+    // sample file -- it does not read or understand arbitrary uploaded
+    // content. Previously the only check was that file.name was truthy, so
+    // any file (wrong one, empty, unrelated) got the same confident
+    // response with no indication it wasn't real analysis. Verify what can
+    // honestly be verified before showing it, and label it as prepared.
+    vcsuVerifyUpload(file, entry).then(function(verification) {
+      if (!verification.ok) {
+        var noticeDiv = document.createElement('div');
+        noticeDiv.className = 'sim-msg ai';
+        noticeDiv.innerHTML = '<div class="sim-msg-label">System</div><div class="sim-msg-text">' + escapeHtml(verification.reason) + '</div>';
+        body.appendChild(noticeDiv);
         body.scrollTop = body.scrollHeight;
-        setTimeout(typeChar, 2);
-      } else {
-        var cpBtn = aiDiv.querySelector('.sim-copy-btn');
-        if (cpBtn) cpBtn.classList.add('visible');
-        if (verificationTips.length > 0) {
-          var checkDiv = document.createElement('div');
-          checkDiv.innerHTML = buildChecklistHtml(verificationTips, 'vchk-fu' + mid + Date.now(), 'Verification Guide — review before applying this output:', 'sim-verification');
-          body.appendChild(checkDiv);
-        }
-        if (followupOptions.length > 0 && followupArea) {
-          followupArea.innerHTML = buildFollowupHtml(mid, followupOptions);
-          followupArea.style.display = '';
+        return;
+      }
+
+      // Update conversation state
+      var convKey = mid + '_' + currentRole;
+      if (!simConversations[convKey]) simConversations[convKey] = {turns:0, lastMatchIdx:-1, usedFollowups:[]};
+      var conv = simConversations[convKey];
+      var matchIdx = roleData.indexOf(entry);
+      if (matchIdx >= 0) { conv.lastMatchIdx = matchIdx; conv.turns = 1; conv.usedFollowups = []; }
+
+      // Format and render response via typewriter
+      var responseText = (entry.response || 'Here is a response based on your uploaded file.');
+      responseText = responseText.replace(/^#{1,3}\s+/gm, '');
+      responseText = responseText.replace(/\*\*/g, '');
+      responseText = responseText.replace(/\*([^*]+)\*/g, '$1');
+      responseText = responseText.replace(/\n\s*\*\s+/g, '\n• ');
+      responseText = responseText.replace(/\n\s*-\s+/g, '\n• ');
+      var verificationTips = entry.verification_tips || [];
+      var followupOptions = (entry.followup_options || []).map(function(o, i) { return Object.assign({}, o, {_origIdx: i}); });
+
+      var aiDiv = document.createElement('div');
+      aiDiv.className = 'sim-msg ai';
+      aiDiv.innerHTML = '<div class="sim-msg-label">AI Assistant</div><button class="sim-copy-btn" onclick="copyAiResponse(this)">Copy</button>' +
+        '<div class="sim-prepared-note">📋 Prepared walkthrough for this sample file — not a live analysis of your upload.</div>' +
+        '<div class="sim-msg-text"></div>';
+      body.appendChild(aiDiv);
+      var textEl = aiDiv.querySelector('.sim-msg-text');
+      var chars = responseText.split('');
+      var idx = 0;
+      function typeChar() {
+        if (idx < chars.length) {
+          var chunk = Math.min(3, chars.length - idx);
+          for (var ci = 0; ci < chunk; ci++) {
+            textEl.innerHTML += chars[idx] === '\n' ? '<br>' : escapeHtml(chars[idx]);
+            idx++;
+          }
+          body.scrollTop = body.scrollHeight;
+          setTimeout(typeChar, 2);
+        } else {
+          var cpBtn = aiDiv.querySelector('.sim-copy-btn');
+          if (cpBtn) cpBtn.classList.add('visible');
+          if (verificationTips.length > 0) {
+            var checkDiv = document.createElement('div');
+            checkDiv.innerHTML = buildChecklistHtml(verificationTips, 'vchk-fu' + mid + Date.now(), 'Verification Guide — review before applying this output:', 'sim-verification');
+            body.appendChild(checkDiv);
+          }
+          if (followupOptions.length > 0 && followupArea) {
+            followupArea.innerHTML = buildFollowupHtml(mid, followupOptions);
+            followupArea.style.display = '';
+          }
         }
       }
-    }
-    typeChar();
+      typeChar();
+    });
+  }
+
+  // Checks what can honestly be checked about an uploaded file before
+  // showing a prepared response keyed to it: that it isn't empty, and --
+  // where the CMS has an expected_filename configured for this simulation
+  // entry -- that the selected file is actually that sample (not just any
+  // file with a plausible name). For plain-text formats, also does a light
+  // read to catch a same-named but blank file, which a filename check
+  // alone can't. This does NOT parse/understand arbitrary file content --
+  // it's a sanity gate for the prepared-walkthrough response, not real
+  // analysis (see D05's scope note: real content analysis of arbitrary
+  // uploads is a separate, larger undertaking, not implemented here).
+  function vcsuVerifyUpload(file, entry) {
+    return new Promise(function(resolve) {
+      if (!file.size) {
+        resolve({ ok: false, reason: 'That file appears to be empty. Please choose the sample file (or a file with actual content) and try again.' });
+        return;
+      }
+      var expected = (entry.expected_filename || '').trim();
+      if (expected && file.name.toLowerCase() !== expected.toLowerCase()) {
+        resolve({ ok: false, reason: 'This walkthrough is prepared for a specific sample file ("' + expected + '"), and "' + file.name + '" doesn\'t match. Download the sample above and upload it unmodified to see the walkthrough.' });
+        return;
+      }
+      if (/\.(txt|csv)$/i.test(file.name) && typeof file.text === 'function') {
+        file.text().then(function(text) {
+          resolve(text && text.trim()
+            ? { ok: true }
+            : { ok: false, reason: 'That file has the right name but appears to be empty or unreadable. Please re-download the sample and try again.' });
+        }).catch(function() { resolve({ ok: true }); }); // can't read it client-side -- don't block on that alone
+      } else {
+        resolve({ ok: true });
+      }
+    });
   }
 
   // ───────────────────────────────────────────────────────────────────────────
