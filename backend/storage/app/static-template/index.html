@@ -4413,6 +4413,21 @@ function showEndOfCourse(cid, nextCid) {
         nextBtn.style.display = 'none';
       }
     }
+
+    // This panel is reachable just by clicking "Next" through every module
+    // in the course -- it doesn't require any of them to actually have
+    // been marked complete (that's a separate action, gated behind the
+    // survey). The "Course Complete" heading is left as a navigational
+    // statement (you've reached the end), but the certificate specifically
+    // claims completion (D09: "a certificate must not claim completion
+    // when required steps are still incomplete"), so gate it on the same
+    // completedModules tracking the survey flow writes to.
+    let certBtn = el.querySelector('.course-cert-btn');
+    if (certBtn) {
+      let courseModules = (typeof COURSE_MODULES !== 'undefined' && COURSE_MODULES[cid]) || [];
+      let allDone = courseModules.length > 0 && courseModules.every(function(m) { return completedModules.indexOf(m) !== -1; });
+      certBtn.style.display = allDone ? '' : 'none';
+    }
   }
   window.scrollTo(0,0);
 }
@@ -6326,7 +6341,25 @@ function generateCourseCertificate(courseId) {
     }
     moduleTitles.push(moduleTitle);
 
-    const moduleOutcomes = Array.isArray(info.ilos) ? info.ilos : (Array.isArray(info.outcomes) ? info.outcomes : []);
+    // Unlike moduleTitle/highlight just above, this previously read ONLY
+    // the static MODULE_CERT_DATA dictionary -- so a course certificate's
+    // listed competencies went stale the moment a module's ILOs were
+    // edited in CMS, and any module without a hand-authored
+    // MODULE_CERT_DATA entry (e.g. one added after this template was
+    // built) contributed zero outcomes. Prefer the live .ilo-tag elements
+    // (the same CMS-driven markup the module's own Overview page and
+    // generateModuleCertificate() already use) and only fall back to the
+    // static dictionary when a module has no live ILOs rendered at all.
+    let moduleOutcomes = [];
+    if (moduleEl) {
+      moduleEl.querySelectorAll('.ilo-tag').forEach(function(tag) {
+        const t = normalizeText(tag.textContent);
+        if (t) moduleOutcomes.push(t);
+      });
+    }
+    if (moduleOutcomes.length === 0) {
+      moduleOutcomes = Array.isArray(info.ilos) ? info.ilos : (Array.isArray(info.outcomes) ? info.outcomes : []);
+    }
     moduleOutcomes.forEach(function(outcome) {
       const cleaned = cleanOutcome(outcome);
       if (cleaned && !outcomes.includes(cleaned)) outcomes.push(cleaned);
