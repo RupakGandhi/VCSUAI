@@ -2922,6 +2922,7 @@ h1,h2,h3,h4,h5 { font-family: 'Inter', system-ui, -apple-system, sans-serif; lin
     <div class="survey-q-label"><span id="survey-q3-label">3. What would improve this module?</span> <span style="font-weight:400;color:var(--text-lighter)">(optional)</span></div>
     <textarea id="survey-q3" class="survey-q3-area" placeholder="Share your thoughts…" maxlength="2000" aria-labelledby="survey-q3-label"></textarea>
     <button id="survey-submit-btn" type="button" onclick="submitSurvey()" disabled="">Submit &amp; Mark Complete</button>
+    <p class="error-msg" id="survey-error" role="alert" aria-live="polite"></p>
     <p class="survey-anon-note">Anonymous. No personal information is collected.</p>
   </div>
 </div>
@@ -5048,15 +5049,34 @@ function submitSurvey() {
     session_id: (function(){ try { return localStorage.getItem('vcsu_anon_session_id'); } catch(e) { return null; } })(),
     client_token: window.VCSU_CLIENT_TOKEN || null,
   };
-  closeSurveyModal();
-  doCompleteModule(mid);
-  // Fire-and-forget: survey failure must never block completion
+  var btn = document.getElementById('survey-submit-btn');
+  var errEl = document.getElementById('survey-error');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
+
+  // Previously this closed the modal and awarded completion unconditionally,
+  // before the request even settled -- so a rejected/offline submission was
+  // indistinguishable from a real one, and the user's answers were lost.
+  // Now the modal stays open (answers intact) until the server actually
+  // confirms the response was accepted, with a visible retry on failure.
   fetch(VCSU_API_BASE + '/survey', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
     cache: 'no-store',
     body: JSON.stringify(payload),
-  }).catch(function(err) { console.warn('Survey submit failed (non-blocking):', err); });
+  }).then(function(res) {
+    if (!res.ok) throw new Error('Server responded ' + res.status);
+    closeSurveyModal();
+    doCompleteModule(mid);
+  }).catch(function(err) {
+    console.warn('Survey submit failed:', err);
+    if (btn) { btn.textContent = 'Submit & Mark Complete'; }
+    if (typeof surveyCheckReady === 'function') surveyCheckReady();
+    if (errEl) {
+      errEl.textContent = "Couldn't save your response -- check your connection and try again.";
+      errEl.style.display = 'block';
+    }
+  });
 }
 
 function toggleComplete(mid) {
@@ -7056,11 +7076,18 @@ document.addEventListener('DOMContentLoaded', function() {
    working if the backend is down).
    ========================================================= */
 (function() {
-  // Absolute URL: this file is deployed standalone (handed to the client
-  // to host wherever they choose), separate from the Laravel backend it
-  // talks to. CORS on the backend (config/cors.php) is opened to allow
-  // this cross-origin fetch from any host.
-  const VCSU_API_BASE = 'http://127.0.0.1:8000/api/v1';
+  // Same-origin by default: /site/{token} (this page, live) and /api/v1/*
+  // are served by the same Laravel app, so this always resolves correctly
+  // regardless of domain/port -- unlike a hardcoded absolute URL, which
+  // previously pointed at http://127.0.0.1:8000 (a leftover local-dev
+  // value). On a real visitor's browser that resolves to *their own*
+  // machine, so every request silently failed in production -- this was
+  // the actual cause of the survey table showing zero records (D06) and
+  // usage-event tracking being completely dark. A static export (this file
+  // hosted standalone, no backend at any origin) already skips every
+  // network call that would use this, via the VCSU_STATIC_MODE checks
+  // below and in submitSurvey/openSurveyModal.
+  const VCSU_API_BASE = window.location.origin + '/api/v1';
   window.VCSU_API_BASE = VCSU_API_BASE;
   // Generous on purpose: with no server-side caching, this recomputes
   // straight from the database on every load (by design -- see
@@ -7074,13 +7101,26 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       let id = localStorage.getItem('vcsu_anon_session_id');
       if (!id) {
-        id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(16).slice(2)));
+        // Must be a real UUID: the backend validates session_id as 'uuid'
+        // and rejects (422) anything else. The previous fallback
+        // (timestamp + random hex) wasn't UUID-shaped, so any browser
+        // without crypto.randomUUID would have every survey submission
+        // rejected by validation.
+        id = crypto.randomUUID ? crypto.randomUUID() : vcsuUuidV4Fallback();
         localStorage.setItem('vcsu_anon_session_id', id);
       }
       return id;
     } catch (e) {
       return null;
     }
+  }
+
+  function vcsuUuidV4Fallback() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0;
+      var v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
   }
 
   // ---- Fire-and-forget anonymous event tracking ----
