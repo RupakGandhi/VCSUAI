@@ -2,3 +2,10 @@
 !private/
 !public/
 !.gitignore
+# The learner-facing frontend template (StaticSiteBuilder injects CMS data
+# into this at request time for /site/{token} and the static export ZIP).
+# Unlike private/public (per-request runtime storage), this is source code
+# that should be reviewable/diffable like any other template.
+!static-template/
+!static-template/**
+static-template/artifacts/~$*

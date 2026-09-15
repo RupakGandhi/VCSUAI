@@ -1,0 +1,31 @@
+{
+  "name": "VCSU AI Institute for Teaching and Learning",
+  "short_name": "VCSU AI Institute",
+  "description": "A comprehensive PK-16 professional development platform for mastering responsible AI integration across all educator roles.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7fafc",
+  "theme_color": "#690720",
+  "icons": [
+    {
+      "src": "assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
