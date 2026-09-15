@@ -7422,6 +7422,28 @@ document.addEventListener('DOMContentLoaded', function() {
         if (mattersP && content.matters) mattersP.textContent = content.matters;
       }
     }
+
+    // Custom Deliverable's intro line names a specific ILO ("...aligned to
+    // this module's Intended Learning Outcome: <strong>...</strong>") as
+    // static per-module HTML -- baked in once at template-build time, so it
+    // goes stale (or outright contradicts the Overview tab, which reads
+    // content.ilos live) the moment a module's ILOs are edited in CMS.
+    // D08 requires Custom Deliverable to use the module's *current* ILOs.
+    var applyEl = document.getElementById('phase-apply-' + moduleId);
+    if (applyEl && content.ilos && content.ilos.length) {
+      var cards = applyEl.querySelectorAll('.content-card');
+      for (var ci = 0; ci < cards.length; ci++) {
+        var cdHeading = cards[ci].querySelector('h4');
+        if (!cdHeading || cdHeading.textContent.indexOf('Custom Deliverable') === -1) continue;
+        var introP = cards[ci].querySelector('p');
+        if (introP) {
+          var label = content.ilos.length > 1 ? 'Intended Learning Outcomes' : 'Intended Learning Outcome';
+          var iloText = content.ilos.map(function(l) { return vcsuEsc(l); }).join('; ');
+          introP.innerHTML = 'Design your own deliverable aligned to this module\'s ' + label + ': <strong>' + iloText + '</strong>. Use the prompts and strategies from this module to create something specific to your context.';
+        }
+        break;
+      }
+    }
     if (learnEl && content.learnHtml) {
       learnEl.innerHTML = content.learnHtml;
       // The "Continue to Practice" CTA used to be part of the authored
@@ -7539,7 +7561,7 @@ document.addEventListener('DOMContentLoaded', function() {
         '</div></div>' +
         '<div class="del-step"><div class="del-step-num">4</div><div class="del-step-content">' +
           '<h6>Finalize and Implement</h6>' +
-          '<p>Apply your professional judgment: verify all facts, adjust language for your audience, add personal touches, and ensure the final product meets your institutional standards. Save your refined prompt for future use.</p>' +
+          '<p>Apply your professional judgment: verify all facts, adjust language for your audience, and add personal touches. The AI\'s output is a text-based draft -- for a deliverable that requires more than text (a recorded video, a formatted file, a translated document, etc.), use this draft as your starting point and complete that production step yourself; a script or outline is not the finished video or artifact. Save your refined prompt for future use.</p>' +
         '</div></div>' +
       '</div></div>';
   }
