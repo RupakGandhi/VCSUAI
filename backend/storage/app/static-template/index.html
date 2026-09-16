@@ -4840,7 +4840,19 @@ function findBestMatch(userText, roleData) {
         return;
       }
       var expected = (entry.expected_filename || '').trim();
-      if (expected && file.name.toLowerCase() !== expected.toLowerCase()) {
+      if (!expected) {
+        // No configured sample to check this upload against at all -- the
+        // previous behavior here was to fall through and show the prepared
+        // response for literally any file (confirmed live: an unrelated,
+        // randomly-named image still produced the full walkthrough). That
+        // directly contradicts "never imply analysis that didn't happen":
+        // with nothing to verify against, the honest answer is to say so,
+        // not to guess-and-show. Point the user at the Practice tab's
+        // sample-file link instead of silently accepting anything.
+        resolve({ ok: false, reason: 'This activity is set up to demonstrate a response for a specific sample file, and that sample isn\'t configured for verification yet. Download the sample file linked on the matching prompt in the Practice tab above and upload that.' });
+        return;
+      }
+      if (file.name.toLowerCase() !== expected.toLowerCase()) {
         resolve({ ok: false, reason: 'This walkthrough is prepared for a specific sample file ("' + expected + '"), and "' + file.name + '" doesn\'t match. Download the sample above and upload it unmodified to see the walkthrough.' });
         return;
       }
