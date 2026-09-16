@@ -4736,7 +4736,7 @@ function findBestMatch(userText, roleData) {
     // any file (wrong one, empty, unrelated) got the same confident
     // response with no indication it wasn't real analysis. Verify what can
     // honestly be verified before showing it, and label it as prepared.
-    vcsuVerifyUpload(file, entry).then(function(verification) {
+    vcsuVerifyUpload(file, entry, mid, currentRole).then(function(verification) {
       if (!verification.ok) {
         var noticeDiv = document.createElement('div');
         noticeDiv.className = 'sim-msg ai';
@@ -4809,7 +4809,31 @@ function findBestMatch(userText, roleData) {
   // it's a sanity gate for the prepared-walkthrough response, not real
   // analysis (see D05's scope note: real content analysis of arbitrary
   // uploads is a separate, larger undertaking, not implemented here).
-  function vcsuVerifyUpload(file, entry) {
+  // Practice prompts (which carry sampleFileUrl) and simulation entries
+  // (which carry expected_filename) are separate CMS collections with no
+  // direct id linking them -- and per D03's own audit note, their sort
+  // orders don't reliably line up, so pairing by array index is unsafe.
+  // Match on filename instead: both are meant to reference the same
+  // physical sample, so if a prompt's sample file has the same basename as
+  // this simulation entry's expected_filename, that prompt's URL points at
+  // the actual bytes to compare against.
+  function vcsuFindSampleUrl(moduleId, role, expectedFilename) {
+    if (!expectedFilename || typeof CMS_DATA === 'undefined' || !CMS_DATA.modules) return null;
+    var mod = CMS_DATA.modules[moduleId];
+    var prompts = mod && mod.prompts && mod.prompts[role];
+    if (!prompts) return null;
+    for (var i = 0; i < prompts.length; i++) {
+      var url = prompts[i].sampleFileUrl;
+      if (url && url.split('/').pop().toLowerCase() === expectedFilename.toLowerCase()) return url;
+    }
+    return null;
+  }
+
+  function vcsuNormalizeForCompare(text) {
+    return String(text || '').replace(/\r\n/g, '\n').trim();
+  }
+
+  function vcsuVerifyUpload(file, entry, moduleId, role) {
     return new Promise(function(resolve) {
       if (!file.size) {
         resolve({ ok: false, reason: 'That file appears to be empty. Please choose the sample file (or a file with actual content) and try again.' });
@@ -4821,10 +4845,26 @@ function findBestMatch(userText, roleData) {
         return;
       }
       if (/\.(txt|csv)$/i.test(file.name) && typeof file.text === 'function') {
-        file.text().then(function(text) {
-          resolve(text && text.trim()
-            ? { ok: true }
-            : { ok: false, reason: 'That file has the right name but appears to be empty or unreadable. Please re-download the sample and try again.' });
+        file.text().then(function(uploadedText) {
+          if (!uploadedText || !uploadedText.trim()) {
+            resolve({ ok: false, reason: 'That file has the right name but appears to be empty or unreadable. Please re-download the sample and try again.' });
+            return;
+          }
+          var sampleUrl = expected ? vcsuFindSampleUrl(moduleId, role, expected) : null;
+          if (!sampleUrl) {
+            // No linked sample to compare bytes against -- filename and
+            // non-empty checks above already ran; don't block further.
+            resolve({ ok: true });
+            return;
+          }
+          fetch(sampleUrl).then(function(res) { return res.ok ? res.text() : null; }).then(function(sampleText) {
+            if (sampleText == null) { resolve({ ok: true }); return; } // couldn't fetch the reference copy -- don't block on that alone
+            if (vcsuNormalizeForCompare(uploadedText) === vcsuNormalizeForCompare(sampleText)) {
+              resolve({ ok: true });
+            } else {
+              resolve({ ok: false, reason: 'This file has the right name, but its contents don\'t match the sample this walkthrough is prepared for. Please upload the sample unmodified.' });
+            }
+          }).catch(function() { resolve({ ok: true }); });
         }).catch(function() { resolve({ ok: true }); }); // can't read it client-side -- don't block on that alone
       } else {
         resolve({ ok: true });
