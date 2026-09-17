@@ -4736,7 +4736,7 @@ function findBestMatch(userText, roleData) {
     // any file (wrong one, empty, unrelated) got the same confident
     // response with no indication it wasn't real analysis. Verify what can
     // honestly be verified before showing it, and label it as prepared.
-    vcsuVerifyUpload(file, entry, mid, currentRole).then(function(verification) {
+    vcsuVerifyUpload(file, entry, mid, currentRole, promptText).then(function(verification) {
       if (!verification.ok) {
         var noticeDiv = document.createElement('div');
         noticeDiv.className = 'sim-msg ai';
@@ -4811,12 +4811,36 @@ function findBestMatch(userText, roleData) {
   // uploads is a separate, larger undertaking, not implemented here).
   // Practice prompts (which carry sampleFileUrl) and simulation entries
   // (which carry expected_filename) are separate CMS collections with no
-  // direct id linking them -- and per D03's own audit note, their sort
-  // orders don't reliably line up, so pairing by array index is unsafe.
-  // Match on filename instead: both are meant to reference the same
-  // physical sample, so if a prompt's sample file has the same basename as
-  // this simulation entry's expected_filename, that prompt's URL points at
-  // the actual bytes to compare against.
+  // direct id linking them, and per D03's own audit note their sort
+  // orders don't reliably line up either. Two ways to bridge them, tried
+  // in order:
+  //  1. PRIMARY: the user's own sent prompt text, matched against each
+  //     practice prompt's promptText (reusing the same normalizeText/
+  //     textSimilarity used for simulator matching generally). This is
+  //     the reliable path in practice -- live testing found
+  //     expected_filename empty on the D1.1 and T3.1 entries actually
+  //     used, so requiring it alone made verification impossible even for
+  //     the genuine sample (reported: every upload, including the correct
+  //     one, got "not configured for verification").
+  //  2. FALLBACK: filename matching between expected_filename and a
+  //     prompt's sample, for whenever expected_filename IS populated but
+  //     no prompt text was sent (e.g. a file attached with an empty
+  //     input).
+  function vcsuFindMatchingPrompt(moduleId, role, promptText) {
+    if (!promptText || typeof CMS_DATA === 'undefined' || !CMS_DATA.modules) return null;
+    var mod = CMS_DATA.modules[moduleId];
+    var prompts = mod && mod.prompts && mod.prompts[role];
+    if (!prompts || !prompts.length) return null;
+    var userNorm = normalizeText(promptText);
+    var best = null, bestScore = 0;
+    for (var i = 0; i < prompts.length; i++) {
+      if (!prompts[i].sampleFileUrl) continue; // only candidates that actually have a sample to verify against
+      var sim = textSimilarity(userNorm, normalizeText(prompts[i].promptText || ''));
+      if (sim > bestScore) { bestScore = sim; best = prompts[i]; }
+    }
+    return bestScore > 0.5 ? best : null;
+  }
+
   function vcsuFindSampleUrl(moduleId, role, expectedFilename) {
     if (!expectedFilename || typeof CMS_DATA === 'undefined' || !CMS_DATA.modules) return null;
     var mod = CMS_DATA.modules[moduleId];
@@ -4833,23 +4857,25 @@ function findBestMatch(userText, roleData) {
     return String(text || '').replace(/\r\n/g, '\n').trim();
   }
 
-  function vcsuVerifyUpload(file, entry, moduleId, role) {
+  function vcsuVerifyUpload(file, entry, moduleId, role, promptText) {
     return new Promise(function(resolve) {
       if (!file.size) {
         resolve({ ok: false, reason: 'That file appears to be empty. Please choose the sample file (or a file with actual content) and try again.' });
         return;
       }
-      var expected = (entry.expected_filename || '').trim();
+
+      var matchedPrompt = vcsuFindMatchingPrompt(moduleId, role, promptText);
+      var sampleUrl = matchedPrompt ? matchedPrompt.sampleFileUrl : null;
+      var expected = sampleUrl ? sampleUrl.split('/').pop() : (entry.expected_filename || '').trim();
+      if (!sampleUrl && expected) sampleUrl = vcsuFindSampleUrl(moduleId, role, expected);
+
       if (!expected) {
-        // No configured sample to check this upload against at all -- the
-        // previous behavior here was to fall through and show the prepared
-        // response for literally any file (confirmed live: an unrelated,
-        // randomly-named image still produced the full walkthrough). That
-        // directly contradicts "never imply analysis that didn't happen":
-        // with nothing to verify against, the honest answer is to say so,
-        // not to guess-and-show. Point the user at the Practice tab's
-        // sample-file link instead of silently accepting anything.
-        resolve({ ok: false, reason: 'This activity is set up to demonstrate a response for a specific sample file, and that sample isn\'t configured for verification yet. Download the sample file linked on the matching prompt in the Practice tab above and upload that.' });
+        // Neither the sent prompt text nor expected_filename identified a
+        // linked sample -- nothing to verify this upload against. Point
+        // the user at the Practice tab's sample-file link rather than
+        // silently accepting anything (the previous, stricter-than-needed
+        // behavior when only expected_filename was checked).
+        resolve({ ok: false, reason: 'This activity is set up to demonstrate a response for a specific sample file. Download the sample file linked on the matching prompt in the Practice tab above and upload that.' });
         return;
       }
       if (file.name.toLowerCase() !== expected.toLowerCase()) {
@@ -4862,7 +4888,6 @@ function findBestMatch(userText, roleData) {
             resolve({ ok: false, reason: 'That file has the right name but appears to be empty or unreadable. Please re-download the sample and try again.' });
             return;
           }
-          var sampleUrl = expected ? vcsuFindSampleUrl(moduleId, role, expected) : null;
           if (!sampleUrl) {
             // No linked sample to compare bytes against -- filename and
             // non-empty checks above already ran; don't block further.

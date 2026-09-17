@@ -142,10 +142,19 @@ class ContentController extends Controller
                         fn ($prompts) => $prompts->map(fn ($p) => [
                             'title' => $p->title,
                             'promptText' => $p->prompt_text,
-                            // Served by the /files/ route — see routes/web.php
-                            // for why this is not a /storage/ symlink URL.
+                            // Served by the /files/prompt-samples/ route —
+                            // see routes/web.php for why this is not a
+                            // /storage/ symlink URL. basename() (matching
+                            // the icon URLs above) makes this robust to
+                            // however sample_file happens to be stored --
+                            // with or without a directory prefix, e.g. from
+                            // a JSON import that didn't preserve Filament's
+                            // "prompt-samples/" prefix. Previously this
+                            // trusted sample_file to already be exactly
+                            // right, and any mismatch 404'd every sample
+                            // link site-wide.
                             'sampleFileUrl' => $p->sample_file
-                                ? url('/files/'.$p->sample_file)
+                                ? url('/files/prompt-samples/'.basename($p->sample_file))
                                 : null,
                         ])->values()
                     ),

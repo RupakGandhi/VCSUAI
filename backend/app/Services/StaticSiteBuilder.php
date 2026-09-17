@@ -106,9 +106,18 @@ class StaticSiteBuilder
             }
         }
 
+        // Resolve via the known upload directory + basename rather than
+        // trusting the stored value's exact form (matches the basename()
+        // fix in ContentController::modulesPayload for the same reason --
+        // sample_file may or may not carry the "prompt-samples/" prefix
+        // depending on how it got into the database, e.g. a JSON import
+        // that didn't preserve it. The physical file always lives under
+        // prompt-samples/ per the Filament upload field's directory
+        // config, regardless of what's recorded in this column).
         foreach (PracticePrompt::whereNotNull('sample_file')->pluck('sample_file') as $path) {
-            if ($disk->exists($path)) {
-                $files['sample-files/'.basename($path)] = $disk->path($path);
+            $diskPath = 'prompt-samples/'.basename($path);
+            if ($disk->exists($diskPath)) {
+                $files['sample-files/'.basename($path)] = $disk->path($diskPath);
             }
         }
 
