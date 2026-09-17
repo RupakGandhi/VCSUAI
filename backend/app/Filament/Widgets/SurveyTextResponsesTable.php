@@ -31,7 +31,7 @@ class SurveyTextResponsesTable extends BaseWidget
         return $table
             ->heading('Open-Text Responses (Q3: "What would improve this module?")')
             ->query(
-                SurveyResponse::query()
+                SurveyResponse::real()
                     ->whereNotNull('q3_text')
                     ->where('q3_text', '!=', '')
                     ->latest('created_at')

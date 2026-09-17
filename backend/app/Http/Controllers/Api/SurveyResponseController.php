@@ -29,6 +29,11 @@ class SurveyResponseController extends Controller
             'q3_text'    => ['nullable', 'string', 'max:2000'],
             'role'       => ['nullable', 'string', 'max:50'],
             'session_id' => ['nullable', 'uuid'],
+            // Lets a deliberate QA/retest submission mark itself so it can
+            // be excluded from evaluation later without deleting real
+            // participant data alongside it. Never set by the live survey
+            // form -- only a controlled test call would send this.
+            'is_test'    => ['nullable', 'boolean'],
         ]);
 
         SurveyResponse::create($validated);

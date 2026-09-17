@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Widgets\SurveyAllResponsesTable;
 use App\Filament\Widgets\SurveyModuleTable;
 use App\Filament\Widgets\SurveyStatsOverview;
 use App\Filament\Widgets\SurveyTextResponsesTable;
@@ -63,6 +64,7 @@ class SurveyResults extends Page
         return [
             SurveyModuleTable::class,
             SurveyTextResponsesTable::class,
+            SurveyAllResponsesTable::class,
         ];
     }
 }

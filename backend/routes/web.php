@@ -32,7 +32,7 @@ Route::get('/files/platform-icons/{file}', function (string $file) {
 Route::get('/panel/survey-export', function () {
     abort_unless(auth()->check(), 403);
 
-    $rows = SurveyResponse::orderBy('created_at')
+    $rows = SurveyResponse::real()->orderBy('created_at')
         ->get(['module_id', 'role', 'q1_score', 'q2_score', 'q3_text', 'created_at']);
 
     $filename = 'survey-responses-' . now()->format('Y-m-d') . '.csv';

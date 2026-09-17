@@ -23,9 +23,9 @@ class SurveyStatsOverview extends BaseWidget
 
     protected function getStats(): array
     {
-        $total = SurveyResponse::count();
-        $avgQ1 = $total > 0 ? number_format(SurveyResponse::avg('q1_score'), 1) : '—';
-        $avgQ2 = $total > 0 ? number_format(SurveyResponse::avg('q2_score'), 1) : '—';
+        $total = SurveyResponse::real()->count();
+        $avgQ1 = $total > 0 ? number_format(SurveyResponse::real()->avg('q1_score'), 1) : '—';
+        $avgQ2 = $total > 0 ? number_format(SurveyResponse::real()->avg('q2_score'), 1) : '—';
 
         return [
             Stat::make('Total Responses', $total)

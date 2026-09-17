@@ -62,13 +62,13 @@ class SurveyModuleTable extends BaseWidget
 
     private function moduleQuery(): Builder
     {
-        $responseCount = fn () => SurveyResponse::selectRaw('COUNT(*)')
+        $responseCount = fn () => SurveyResponse::real()->selectRaw('COUNT(*)')
             ->whereColumn('module_id', 'modules.id');
 
-        $avgQ1 = fn () => SurveyResponse::selectRaw('ROUND(AVG(q1_score),1)')
+        $avgQ1 = fn () => SurveyResponse::real()->selectRaw('ROUND(AVG(q1_score),1)')
             ->whereColumn('module_id', 'modules.id');
 
-        $avgQ2 = fn () => SurveyResponse::selectRaw('ROUND(AVG(q2_score),1)')
+        $avgQ2 = fn () => SurveyResponse::real()->selectRaw('ROUND(AVG(q2_score),1)')
             ->whereColumn('module_id', 'modules.id');
 
         return Module::query()
