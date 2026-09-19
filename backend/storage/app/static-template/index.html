@@ -7520,6 +7520,25 @@ document.addEventListener('DOMContentLoaded', function() {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // A CMS-authored description with its own numbered steps or multiple
+  // lines was previously escaped as one continuous string and dropped
+  // into a single <p> -- HTML collapses literal newlines, so the step
+  // structure visually disappeared into one run-on paragraph. Splits on
+  // line breaks and renders each as its own list item (when every line
+  // starts with a number) or paragraph, preserving order; a plain
+  // single-line description renders exactly as before.
+  function vcsuRenderMultilineText(text) {
+    var lines = String(text == null ? '' : text).split(/\r?\n/).map(function(l) { return l.trim(); }).filter(Boolean);
+    if (lines.length <= 1) return '<p>' + vcsuEsc(text || '') + '</p>';
+    var isNumbered = lines.every(function(l) { return /^\d+[.)]\s+/.test(l); });
+    if (isNumbered) {
+      return '<ol>' + lines.map(function(l) {
+        return '<li>' + vcsuEsc(l.replace(/^\d+[.)]\s+/, '')) + '</li>';
+      }).join('') + '</ol>';
+    }
+    return lines.map(function(l) { return '<p>' + vcsuEsc(l) + '</p>'; }).join('');
+  }
+
   const VCSU_ROLE_LABELS = {
     classroom: 'K-12 Teacher',
     leader: 'School/District Leader',
@@ -7874,7 +7893,7 @@ document.addEventListener('DOMContentLoaded', function() {
         card.className = 'deliverable-card';
         card.innerHTML =
           '<h5>' + vcsuEsc(d.title) + '</h5>' +
-          '<p>' + vcsuEsc(d.description) + '</p>' +
+          vcsuRenderMultilineText(d.description) +
           buildDeliverableStepsHtml(moduleId, role, idx, d.description, d.initialPrompt, d.refinePrompt);
         roleContent.appendChild(card);
       });
