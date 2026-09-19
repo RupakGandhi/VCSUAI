@@ -4377,6 +4377,15 @@ function showModule(mid) {
   if(el) el.style.display='block';
   showPhase(mid,'overview');
   updateCompletionUI();
+  // Why It Matters is a single paragraph overwritten in place per role
+  // (unlike Challenge/Key Concept, which render every role as hidden
+  // .role-content blocks toggled by updateRoleContent()), so it only ever
+  // gets refreshed for whichever module happened to be open at the moment
+  // of the last role switch. Opening a DIFFERENT module without touching
+  // the role selector left it showing whatever role's text was baked in
+  // at page load (D07: a Higher Ed Faculty view showing Teacher/grade-5
+  // "Why It Matters" text after navigating module-to-module).
+  if (typeof updateMattersForRole === 'function') updateMattersForRole(currentRole);
   window.scrollTo(0,0);
   // Ensure certificate placeholders exist for this module (run after DOM update)
   try {
@@ -4652,7 +4661,7 @@ function findBestMatch(userText, roleData) {
   // the switch as the one currently on screen.
   function resetAllSimulatorState() {
     document.querySelectorAll('.sim-body').forEach(function(el) { el.innerHTML = ''; });
-    document.querySelectorAll('.sim-followup').forEach(function(el) { el.innerHTML = ''; el.style.display = ''; });
+    document.querySelectorAll('.sim-followup').forEach(function(el) { el.innerHTML = ''; el.dataset.options = ''; el.style.display = ''; });
     document.querySelectorAll('.sim-input').forEach(function(el) { el.value = ''; });
     if (window._pendingFiles) {
       Object.keys(window._pendingFiles).forEach(function(mid) { removeAttachmentChip(mid); });
@@ -4728,6 +4737,13 @@ function findBestMatch(userText, roleData) {
       || roleData.find(function(e) { return e.response; });
     if (!entry) return;
 
+    // Captured so the async verification callback below can tell, once it
+    // resolves, whether the user has since navigated to a different module
+    // or switched role -- otherwise a slow verification could land its
+    // response/conversation-state update against whatever module/role
+    // happens to be current BY THEN, not the one it was actually attached
+    // to (found in source, not reproduced live).
+    var uploadRole = currentRole;
     var body = document.getElementById('sim-body-' + mid);
     var followupArea = document.getElementById('sim-followup-' + mid);
     if (!body) return;
@@ -4747,6 +4763,10 @@ function findBestMatch(userText, roleData) {
     // response with no indication it wasn't real analysis. Verify what can
     // honestly be verified before showing it, and label it as prepared.
     vcsuVerifyUpload(file, entry, mid, currentRole, promptText).then(function(verification) {
+      // Discard: the user moved on to a different module or role while
+      // this was in flight, so applying it now would corrupt whatever
+      // conversation is actually on screen (or a role it doesn't belong to).
+      if (window._currentModuleId !== mid || currentRole !== uploadRole) return;
       if (!verification.ok) {
         var noticeDiv = document.createElement('div');
         noticeDiv.className = 'sim-msg ai';
@@ -4799,9 +4819,22 @@ function findBestMatch(userText, roleData) {
             checkDiv.innerHTML = buildChecklistHtml(verificationTips, 'vchk-fu' + mid + Date.now(), 'Verification Guide — review before applying this output:', 'sim-verification');
             body.appendChild(checkDiv);
           }
-          if (followupOptions.length > 0 && followupArea) {
-            followupArea.innerHTML = buildFollowupHtml(mid, followupOptions);
-            followupArea.style.display = '';
+          if (followupArea) {
+            if (followupOptions.length > 0) {
+              followupArea.innerHTML = buildFollowupHtml(mid, followupOptions);
+              // useFollowupOption() reads this to know which prompt an
+              // index maps to -- the text-message flow (sendSim) already
+              // sets it, but this upload flow never did, so every
+              // follow-up button here either did nothing (dataset.options
+              // empty) or replayed a stale case's options left over from
+              // an earlier turn (D05 follow-up item 2).
+              followupArea.dataset.options = JSON.stringify(followupOptions);
+              followupArea.style.display = '';
+            } else {
+              followupArea.innerHTML = '';
+              followupArea.dataset.options = '';
+              followupArea.style.display = 'none';
+            }
           }
         }
       }
@@ -5028,18 +5061,16 @@ function findBestMatch(userText, roleData) {
       // Show remaining follow-up options
       followupOptions = fuOpts.filter((_, i) => !conv.usedFollowups.includes(i));
     } else {
-      // Generic follow-up using first unused option
-      let unusedIdx = fuOpts.findIndex((_, i) => !conv.usedFollowups.includes(i));
-      if(unusedIdx >= 0 && fuOpts[unusedIdx].response) {
-        responseText = fuOpts[unusedIdx].response;
-        conv.usedFollowups.push(unusedIdx);
-        followupOptions = fuOpts.filter((_, i) => !conv.usedFollowups.includes(i));
-      } else {
-        responseText = 'Great question! Building on our conversation, I would recommend exploring the Practice Prompts above for additional guided scenarios. Each prompt is designed to help you develop a specific skill in this module.';
-      }
-      verificationTips = prev.verification_tips || [];
-      biasCheckTips = prev.bias_check_tips || [];
-      isFollowUpResponse = true;
+      // Unmatched continuation text (e.g. an unrelated question) previously
+      // got the next unused follow-up's canned response substituted in --
+      // any off-topic message after a completed prompt returned a random
+      // prepared answer with no connection to what was actually asked.
+      // This is a prepared simulation, not a live model: say so instead of
+      // guessing, and leave the real follow-up options in place to use.
+      responseText = 'This simulator only has prepared responses for its listed prompts and follow-up options -- it doesn\'t have one for that. Try one of the follow-up buttons below, or start a new prepared prompt from the Practice Prompts section above.';
+      verificationTips = [];
+      biasCheckTips = [];
+      isFollowUpResponse = false;
       let allFuOpts = prev.followup_options || [];
       followupOptions = allFuOpts.map((o, i) => ({...o, _origIdx: i})).filter(o => !conv.usedFollowups.includes(o._origIdx));
     }
@@ -5100,6 +5131,7 @@ function findBestMatch(userText, roleData) {
         followupArea.style.display = '';
       } else {
         followupArea.innerHTML = '';
+        followupArea.dataset.options = '';
         followupArea.style.display = 'none';
       }
 
@@ -5373,15 +5405,24 @@ function checkCertificateEligibility() {
     var outcomes = [];
     
     if (modEl) {
-      var challengeBox = modEl.querySelector('.challenge-box p');
+      // Challenge/Concept render every role's text as its own hidden
+      // .role-content block inside the box (only the current role's is
+      // display:block); an unscoped ".challenge-box p" selector returns
+      // whichever role happens to be FIRST in the DOM regardless of
+      // visibility, not the role the certificate is actually being
+      // generated for (D09: a Higher Ed Faculty certificate showing the
+      // Teacher/grade-5 case). Matters-box has no such per-role wrapper --
+      // it's a single paragraph already kept in sync with currentRole by
+      // updateMattersForRole()/showModule() -- so it stays unscoped.
+      var challengeBox = modEl.querySelector('.challenge-box .role-content[data-role="' + currentRole + '"] p') || modEl.querySelector('.challenge-box p');
       if (challengeBox) challengeText = challengeBox.textContent.trim();
-      
-      var conceptBox = modEl.querySelector('.concept-box p');
+
+      var conceptBox = modEl.querySelector('.concept-box .role-content[data-role="' + currentRole + '"] p') || modEl.querySelector('.concept-box p');
       if (conceptBox) conceptText = conceptBox.textContent.trim();
-      
+
       var mattersBox = modEl.querySelector('.matters-box p');
       if (mattersBox) mattersText = mattersBox.textContent.trim();
-      
+
       var iloTags = modEl.querySelectorAll('.ilo-tag');
       iloTags.forEach(function(tag) { outcomes.push(tag.textContent.trim()); });
     }
@@ -5662,30 +5703,53 @@ function exportModuleFacGuide(mid) {
   doc.text('Facilitator Guide', lm, y); y += 8;
   doc.setDrawColor(59,48,107); doc.setLineWidth(0.5); doc.line(lm, y, 190, y); y += 8;
 
+  // The page-break threshold was hardcoded to 297mm (A4 height) while this
+  // document is built with format:'letter' (279.4mm tall) -- content was
+  // allowed to render right up to a page boundary that didn't actually
+  // exist on the page, running off the bottom instead of flowing onto a
+  // new one. Derive it from the real page height instead.
+  var pageH = doc.internal.pageSize.getHeight();
   function ensureSpace(minRemaining) {
-    if (y > 297 - minRemaining) { doc.addPage(); y = 20; }
+    if (y > pageH - minRemaining) { doc.addPage(); y = 20; }
   }
+  // Role-guide content (like Challenge/Concept in the Overview tab) is
+  // authored as hidden .role-content[data-role] blocks for every role, with
+  // only the selected role's shown via display:none toggling. The walker
+  // below previously read every element regardless of that, exporting all
+  // six roles' guides concatenated together. Shared content (e.g. Close
+  // the Loop) isn't wrapped this way and is unaffected.
+  function vcsuHiddenForRole(el) {
+    var wrapper = el.closest('.role-content');
+    return !!(wrapper && wrapper.dataset.role && wrapper.dataset.role !== currentRole);
+  }
+  // minRemaining is computed from the ACTUAL number of wrapped lines
+  // (known before rendering, since splitTextToSize already ran) rather
+  // than a fixed guess -- a guess too small let a long paragraph or list
+  // start near the bottom of a page and run past it instead of triggering
+  // a break beforehand.
   function renderHeading(text) {
     if (!text) return;
-    ensureSpace(20);
-    doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(59,48,107);
+    doc.setFont('helvetica','bold'); doc.setFontSize(12);
     let hl = doc.splitTextToSize(text, maxW);
+    ensureSpace(hl.length * 5 + 3 + 5);
+    doc.setTextColor(59,48,107);
     doc.text(hl, lm, y); y += hl.length * 5 + 3;
   }
   function renderParagraph(text) {
     if (!text) return;
-    ensureSpace(12);
-    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(80,80,80);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9);
     let pl = doc.splitTextToSize(text, maxW);
+    ensureSpace(pl.length * 4 + 3);
+    doc.setTextColor(80,80,80);
     doc.text(pl, lm, y); y += pl.length * 4 + 3;
   }
   function renderListItems(items, ordered) {
     if (!items.length) return;
     doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(80,80,80);
     items.forEach(function(item, i) {
-      ensureSpace(10);
       var prefix = ordered ? ((i + 1) + '. ') : '- ';
       let il = doc.splitTextToSize(prefix + item, maxW);
+      ensureSpace(il.length * 4 + 2);
       doc.text(il, lm, y); y += il.length * 4 + 2;
     });
     y += 2;
@@ -5696,29 +5760,37 @@ function exportModuleFacGuide(mid) {
     // questions, misconceptions, extensions); Close the Loop specifically
     // uses .content-card instead -- both are section-level blocks within
     // this phase panel.
-    var sections = facEl.querySelectorAll('.facilitator-section, .content-card');
+    var sections = Array.prototype.filter.call(
+      facEl.querySelectorAll('.facilitator-section, .content-card'),
+      function(section) { return !vcsuHiddenForRole(section); }
+    );
     if (sections.length === 0) {
       renderParagraph(vcsuExportNormalize(facEl.textContent));
     } else {
       sections.forEach(function(section) {
         var heading = section.querySelector('h3, h4, h5');
-        if (heading) renderHeading(vcsuExportNormalize(heading.textContent));
+        if (heading && !vcsuHiddenForRole(heading)) renderHeading(vcsuExportNormalize(heading.textContent));
 
         section.querySelectorAll('p').forEach(function(p) {
+          if (vcsuHiddenForRole(p)) return;
           renderParagraph(vcsuExportNormalize(p.textContent));
         });
         section.querySelectorAll('ol').forEach(function(ol) {
+          if (vcsuHiddenForRole(ol)) return;
           var items = Array.prototype.map.call(ol.querySelectorAll('li'), function(li) { return vcsuExportNormalize(li.textContent); });
           renderListItems(items, true);
         });
         section.querySelectorAll('ul').forEach(function(ul) {
+          if (vcsuHiddenForRole(ul)) return;
           var items = Array.prototype.map.call(ul.querySelectorAll('li'), function(li) { return vcsuExportNormalize(li.textContent); });
           renderListItems(items, false);
         });
         section.querySelectorAll('.facilitator-tip').forEach(function(tip) {
+          if (vcsuHiddenForRole(tip)) return;
           renderParagraph('Tip: ' + vcsuExportNormalize(tip.textContent));
         });
         section.querySelectorAll('table').forEach(function(table) {
+          if (vcsuHiddenForRole(table)) return;
           var rows = Array.prototype.map.call(table.querySelectorAll('tr'), function(tr) {
             return Array.prototype.map.call(tr.querySelectorAll('th,td'), function(c) { return vcsuExportNormalize(c.textContent); }).join('  |  ');
           });
@@ -6418,16 +6490,22 @@ function insertCourseCertificateButtons() {
     const courseId = eoc.id.replace('eoc-','');
     const buttonsContainer = eoc.querySelector('.eoc-buttons');
     if (!buttonsContainer) return;
-    const existing = buttonsContainer.querySelector('.course-cert-btn');
-    if (existing) return;
-    const btn = document.createElement('button');
-    btn.className = 'eoc-btn secondary course-cert-btn';
-    btn.style.marginLeft = '0.5rem';
-    btn.textContent = 'Download Course Certificate';
+    // Previously returned early when a button already existed, so it never
+    // (re)bound the click handler on that button -- e.g. a reconciliation
+    // pass that changed which courseId this panel belongs to left an
+    // existing button either unbound or still wired to the OLD courseId.
+    // Rebind unconditionally, whether the button is new or already there.
+    let btn = buttonsContainer.querySelector('.course-cert-btn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.className = 'eoc-btn secondary course-cert-btn';
+      btn.style.marginLeft = '0.5rem';
+      btn.textContent = 'Download Course Certificate';
+      buttonsContainer.appendChild(btn);
+    }
     btn.onclick = function() {
       generateCourseCertificate(courseId);
     };
-    buttonsContainer.appendChild(btn);
   });
 }
 
@@ -6521,8 +6599,11 @@ function generateCourseCertificate(courseId) {
 
     let highlight = '';
     if (moduleEl) {
-      const challengeBox = moduleEl.querySelector('.challenge-box p');
-      const conceptBox = moduleEl.querySelector('.concept-box p');
+      // Same role-scoping fix as generateModuleCertificate() -- an
+      // unscoped selector here silently pulled whichever role's hidden
+      // .role-content happened to be first in the DOM.
+      const challengeBox = moduleEl.querySelector('.challenge-box .role-content[data-role="' + currentRole + '"] p') || moduleEl.querySelector('.challenge-box p');
+      const conceptBox = moduleEl.querySelector('.concept-box .role-content[data-role="' + currentRole + '"] p') || moduleEl.querySelector('.concept-box p');
       highlight = normalizeText((challengeBox && challengeBox.textContent) || (conceptBox && conceptBox.textContent) || '');
     }
     if (!highlight) {
@@ -7609,7 +7690,27 @@ document.addEventListener('DOMContentLoaded', function() {
       nav.innerHTML = '<button class="phase-next-btn" type="button" onclick="showPhase(\'' + moduleId + '\',\'practice\')">Continue to Practice <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.69l-3.22-3.22a.75.75 0 011.06-1.06l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 11-1.06-1.06l3.22-3.22H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg></button>';
       learnEl.appendChild(nav);
     }
-    if (facEl && content.facilitatorHtml) facEl.innerHTML = content.facilitatorHtml;
+    if (facEl && content.facilitatorHtml) {
+      facEl.innerHTML = content.facilitatorHtml;
+      // The "Export Module Facilitator Guide as PDF" button was part of
+      // the static template's own facilitator markup, so replacing the
+      // whole panel with the CMS's facilitatorHtml wiped it out along with
+      // everything else -- every module whose facilitator content was ever
+      // edited in the CMS (25/31) lost the control; the other 6 simply
+      // never had CMS facilitatorHtml set, so this branch never ran for
+      // them. Same fix as the Learn phase's nav button above: don't trust
+      // authored content to include it, always (re)insert a correctly
+      // wired one.
+      var existingExportBtn = facEl.querySelector('.export-pdf-btn');
+      if (existingExportBtn) existingExportBtn.remove();
+      var exportBtn = document.createElement('button');
+      exportBtn.className = 'export-pdf-btn';
+      exportBtn.type = 'button';
+      exportBtn.style.marginBottom = '1rem';
+      exportBtn.textContent = 'Export Module Facilitator Guide as PDF';
+      exportBtn.onclick = function() { exportModuleFacGuide(moduleId); };
+      facEl.insertBefore(exportBtn, facEl.firstChild);
+    }
   }
 
   // ---- Practice prompts: rebuild each role's prompt-cards from scratch
