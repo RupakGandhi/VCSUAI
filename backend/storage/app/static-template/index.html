@@ -128,7 +128,14 @@ legend.survey-q-label { display:block; padding:0; width:100%; }
 .survey-sub-label { font-size:0.78rem; color:var(--text-lighter); margin-top:-0.25rem; margin-bottom:0.6rem; }
 .survey-scale { display:flex; gap:0.5rem; margin-bottom:1.1rem; }
 .survey-scale label { display:flex; flex-direction:column; align-items:center; gap:0.3rem; cursor:pointer; }
-.survey-scale input[type=radio] { display:none; }
+/* display:none previously removed these from the tab order entirely --
+   keyboard users had no way to focus or select a rating at all, since the
+   visible .survey-tile is just a styled sibling <span>, not an input.
+   Visually-hidden-but-focusable (same technique as .sr-only above) keeps
+   the tile-based visual design while restoring native radio-group
+   keyboard behavior (Tab in, arrow keys between options, Space to pick). */
+.survey-scale input[type=radio] { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.survey-scale input[type=radio]:focus-visible + .survey-tile { outline:2px solid var(--accent); outline-offset:2px; }
 .survey-tile { width:42px; height:42px; display:flex; align-items:center; justify-content:center; border-radius:8px; border:2px solid var(--border); font-weight:700; font-size:1rem; color:var(--text); transition:background 0.15s, border-color 0.15s, color 0.15s; }
 .survey-scale input[type=radio]:checked + .survey-tile { background:var(--accent); border-color:var(--accent); color:white; }
 .survey-scale label:hover .survey-tile { border-color:var(--accent); }
@@ -4482,7 +4489,12 @@ function toggleFacilitator() {
     let pw = document.getElementById('pathways-section');
     if(pw) pw.style.display='none';
   } else {
-    document.getElementById('fac-modal').style.display='flex';
+    // classList, not style.display: the Escape-key handler and focus-trap
+    // MutationObserver below both watch for a "show"/"active" class change
+    // (matching the existing .modal-overlay.show CSS rule), so toggling
+    // display directly left them never firing at all -- Escape didn't
+    // close this modal, and focus was never trapped inside it.
+    document.getElementById('fac-modal').classList.add('show');
     document.getElementById('fac-pwd').value='';
     document.getElementById('pwd-error').style.display='none';
     setTimeout(() => document.getElementById('fac-pwd').focus(), 100);
@@ -4498,7 +4510,7 @@ function unlockFacilitator() {
   // override the top-level const, so it must be checked explicitly here.
   if(pwd === (window.FAC_PASSWORD || FAC_PASSWORD)) {
     facMode = true;
-    document.getElementById('fac-modal').style.display='none';
+    document.getElementById('fac-modal').classList.remove('show');
     document.getElementById('fac-btn').textContent = 'Facilitator: Active';
     document.getElementById('fac-btn').classList.add('active');
     document.querySelectorAll('.facilitator-only').forEach(el => el.style.display='inline-block');
@@ -4508,7 +4520,7 @@ function unlockFacilitator() {
     document.getElementById('pwd-error').style.display='block';
   }
 }
-function closeFacModal() { document.getElementById('fac-modal').style.display='none'; }
+function closeFacModal() { document.getElementById('fac-modal').classList.remove('show'); }
 // Micro lesson is now a standalone page - no overlay JS needed
 
 function normalizeText(t) {
@@ -7313,6 +7325,10 @@ function trapFocus(el) {
   const focusable = Array.from(el.querySelectorAll(FOCUSABLE_SEL));
   if (!focusable.length) return;
   const first = focusable[0], last = focusable[focusable.length - 1];
+  // Remembered so releaseFocus() can put focus back where it was before
+  // the modal opened (typically the button that triggered it), instead of
+  // leaving it on whatever happened to be inside the now-closed modal.
+  el._previouslyFocused = document.activeElement;
   el._trapHandler = function(e) {
     if (e.key !== 'Tab') return;
     if (e.shiftKey) { if (document.activeElement === first) { e.preventDefault(); last.focus(); } }
@@ -7323,7 +7339,12 @@ function trapFocus(el) {
   setTimeout(function() { first.focus(); }, 50);
 }
 function releaseFocus(el) {
-  if (el && el._trapHandler) el.removeEventListener('keydown', el._trapHandler);
+  if (!el) return;
+  if (el._trapHandler) { el.removeEventListener('keydown', el._trapHandler); el._trapHandler = null; }
+  if (el._previouslyFocused && typeof el._previouslyFocused.focus === 'function') {
+    el._previouslyFocused.focus();
+    el._previouslyFocused = null;
+  }
 }
 
 // Escape key closes open overlays
@@ -8335,11 +8356,19 @@ document.addEventListener('DOMContentLoaded', function() {
   })();
 
   (function() {
-    const _toggleComplete = window.toggleComplete;
-    if (typeof _toggleComplete === 'function') {
-      window.toggleComplete = function(mid) {
+    // Previously wrapped toggleComplete instead: for an incomplete module,
+    // toggleComplete just calls openSurveyModal() and returns -- the
+    // module isn't actually marked complete until doCompleteModule() runs
+    // later, from a successful survey submission (or immediately in
+    // static-export mode, which has no survey). Wrapping toggleComplete
+    // fired module_complete the instant the survey MODAL OPENED, before
+    // the user had submitted anything. doCompleteModule is the function
+    // that actually performs completion, so track it there instead.
+    const _doCompleteModule = window.doCompleteModule;
+    if (typeof _doCompleteModule === 'function') {
+      window.doCompleteModule = function(mid) {
         const wasIncomplete = typeof completedModules !== 'undefined' && completedModules.indexOf(mid) === -1;
-        _toggleComplete(mid);
+        _doCompleteModule(mid);
         if (wasIncomplete) {
           window.vcsuTrackEvent('module_complete', { module_id: mid });
         }
