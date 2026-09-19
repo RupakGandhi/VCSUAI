@@ -9,6 +9,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget as BaseWidget;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\On;
 
 class SurveyModuleTable extends BaseWidget
 {
@@ -17,6 +18,14 @@ class SurveyModuleTable extends BaseWidget
     protected int|string|array $columnSpan = 'full';
 
     protected static ?string $pollingInterval = null;
+
+    // See SurveyStatsOverview::refreshStats() -- same reasoning: this
+    // table's per-module averages need to refresh when a row is
+    // excluded/included from the sibling SurveyAllResponsesTable widget.
+    #[On('survey-data-changed')]
+    public function refreshModuleTable(): void
+    {
+    }
 
     // Visible on the SurveyResults page (and its own Livewire requests for
     // sorting/actions) but NOT auto-discovered onto the default Dashboard.
@@ -54,6 +63,7 @@ class SurveyModuleTable extends BaseWidget
                             ->title("Deleted {$count} response(s) for {$record->id}")
                             ->success()
                             ->send();
+                        $this->dispatch('survey-data-changed');
                     }),
             ])
             ->defaultSort('response_count', 'desc')

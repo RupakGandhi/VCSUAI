@@ -8,6 +8,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget as BaseWidget;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\On;
 
 class SurveyTextResponsesTable extends BaseWidget
 {
@@ -16,6 +17,13 @@ class SurveyTextResponsesTable extends BaseWidget
     protected int|string|array $columnSpan = 'full';
 
     protected static ?string $pollingInterval = null;
+
+    // See SurveyStatsOverview::refreshStats() -- a row excluded/included
+    // from SurveyAllResponsesTable may have open-text feedback shown here.
+    #[On('survey-data-changed')]
+    public function refreshTextResponses(): void
+    {
+    }
 
     // Visible on the SurveyResults page (and its own Livewire requests)
     // but NOT auto-discovered onto the default Dashboard.

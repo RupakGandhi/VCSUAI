@@ -5,12 +5,24 @@ namespace App\Filament\Widgets;
 use App\Models\SurveyResponse;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
+use Livewire\Attributes\On;
 
 class SurveyStatsOverview extends BaseWidget
 {
     protected static ?int $sort = 1;
 
     protected static ?string $pollingInterval = null;
+
+    // SurveyAllResponsesTable's exclude/include toggle lives in a separate
+    // Livewire component and dispatches this after saving -- without a
+    // listener here these numbers kept showing the pre-toggle count/averages
+    // until the whole page was reloaded.
+    #[On('survey-data-changed')]
+    public function refreshStats(): void
+    {
+        // Empty on purpose: any listener firing causes Livewire to
+        // re-render this component, which re-runs getStats() fresh.
+    }
 
     // Visible on the SurveyResults page (and its own Livewire requests)
     // but NOT auto-discovered onto the default Dashboard.

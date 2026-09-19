@@ -63,6 +63,13 @@ class SurveyAllResponsesTable extends BaseWidget
                     ->action(function (SurveyResponse $record) {
                         $record->update(['is_test' => true]);
                         Notification::make()->title('Response excluded from evaluation')->success()->send();
+                        // This table is its own Livewire component and re-renders
+                        // itself automatically after an action, but the stats/
+                        // module-average widgets alongside it on the same page
+                        // are separate components that don't know anything
+                        // changed -- without this they kept showing pre-toggle
+                        // numbers until a full page reload.
+                        $this->dispatch('survey-data-changed');
                     }),
                 Tables\Actions\Action::make('unmark_test')
                     ->label('Include in evaluation')
@@ -71,6 +78,7 @@ class SurveyAllResponsesTable extends BaseWidget
                     ->action(function (SurveyResponse $record) {
                         $record->update(['is_test' => false]);
                         Notification::make()->title('Response restored to evaluation')->success()->send();
+                        $this->dispatch('survey-data-changed');
                     }),
             ])
             ->defaultSort('created_at', 'desc')
