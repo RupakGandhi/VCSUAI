@@ -119,7 +119,9 @@
 /* Survey modal */
 #survey-overlay { position:fixed; inset:0; background:rgba(10,20,40,0.85); display:none; z-index:9900; align-items:center; justify-content:center; padding:1.25rem; }
 #survey-overlay.open { display:flex; }
-.survey-card { width:min(100%,560px); background:white; border-radius:var(--radius-lg,12px); box-shadow:0 20px 60px rgba(0,0,0,0.35); border:1px solid var(--border); padding:2rem; }
+.survey-card { position:relative; width:min(100%,560px); background:white; border-radius:var(--radius-lg,12px); box-shadow:0 20px 60px rgba(0,0,0,0.35); border:1px solid var(--border); padding:2rem; }
+.survey-close-btn { position:absolute; top:0.85rem; right:0.85rem; width:32px; height:32px; border-radius:50%; border:1px solid var(--border); background:white; color:#374151; font-size:1.1rem; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.survey-close-btn:hover { background:#f3f4f6; }
 .survey-card h2 { color:var(--primary); margin-bottom:0.4rem; }
 .survey-card .survey-intro { color:var(--text-light); font-size:0.92rem; margin-bottom:1.25rem; }
 .survey-fieldset { border:none; margin:0; padding:0; }
@@ -2909,6 +2911,7 @@ h1,h2,h3,h4,h5 { font-family: 'Inter', system-ui, -apple-system, sans-serif; lin
 </div>
 <div id="survey-overlay" role="dialog" aria-modal="true" aria-labelledby="survey-title">
   <div class="survey-card">
+    <button class="survey-close-btn" type="button" aria-label="Close without submitting" title="Close" onclick="closeSurveyModal()">&times;</button>
     <div class="eula-kicker">Before You Finish</div>
     <h2 id="survey-title">Module Reflection</h2>
     <p class="survey-intro">A quick 3-question reflection — anonymous and takes under a minute.</p>
@@ -7360,6 +7363,17 @@ document.addEventListener('keydown', function(e) {
     if (typeof closeMicroLesson === 'function') closeMicroLesson();
     return;
   }
+  // The survey modal previously had no way to dismiss it at all short of
+  // completing and submitting it -- no visible close control and no
+  // Escape handling, a real trap for anyone who opened it by mistake or
+  // changed their mind. It already toggles an "open" class (unlike
+  // fac-modal, which needed a separate fix for this), so this just needed
+  // wiring in alongside the other overlays.
+  var surveyOverlay = document.getElementById('survey-overlay');
+  if (surveyOverlay && surveyOverlay.classList.contains('open')) {
+    if (typeof closeSurveyModal === 'function') closeSurveyModal();
+    return;
+  }
 });
 
 // Watch modals for open/close and manage focus trap
@@ -7368,12 +7382,13 @@ document.addEventListener('DOMContentLoaded', function() {
     var el = document.getElementById(id);
     if (!el) return;
     new MutationObserver(function() {
-      var isOpen = el.classList.contains('show') || el.classList.contains('active');
+      var isOpen = el.classList.contains('show') || el.classList.contains('active') || el.classList.contains('open');
       if (isOpen) trapFocus(el); else releaseFocus(el);
     }).observe(el, { attributes: true, attributeFilter: ['class'] });
   }
   watchModal('fac-modal');
   watchModal('micro-lesson-overlay');
+  watchModal('survey-overlay');
 });
 
 // Keep strand tab aria-selected in sync
