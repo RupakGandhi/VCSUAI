@@ -7325,21 +7325,30 @@ function cmsApplySettingsToDOM() {
 const FOCUSABLE_SEL = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function trapFocus(el) {
-  const focusable = Array.from(el.querySelectorAll(FOCUSABLE_SEL));
-  if (!focusable.length) return;
-  const first = focusable[0], last = focusable[focusable.length - 1];
+  const initial = Array.from(el.querySelectorAll(FOCUSABLE_SEL));
+  if (!initial.length) return;
   // Remembered so releaseFocus() can put focus back where it was before
   // the modal opened (typically the button that triggered it), instead of
   // leaving it on whatever happened to be inside the now-closed modal.
   el._previouslyFocused = document.activeElement;
   el._trapHandler = function(e) {
     if (e.key !== 'Tab') return;
+    // Queried fresh on every Tab press rather than cached once at setup --
+    // the survey modal's Submit button starts disabled (excluded by the
+    // :not([disabled]) part of FOCUSABLE_SEL) and only becomes tabbable
+    // once both ratings are picked. A cached first/last still treated the
+    // textarea as the end of the trap even after the button became
+    // enabled, so Tab from there wrapped back to the start and skipped
+    // the button entirely.
+    var focusable = Array.from(el.querySelectorAll(FOCUSABLE_SEL));
+    if (!focusable.length) return;
+    var first = focusable[0], last = focusable[focusable.length - 1];
     if (e.shiftKey) { if (document.activeElement === first) { e.preventDefault(); last.focus(); } }
     else { if (document.activeElement === last) { e.preventDefault(); first.focus(); } }
   };
   el.addEventListener('keydown', el._trapHandler);
   // Small delay to let DOM settle before moving focus
-  setTimeout(function() { first.focus(); }, 50);
+  setTimeout(function() { initial[0].focus(); }, 50);
 }
 function releaseFocus(el) {
   if (!el) return;
